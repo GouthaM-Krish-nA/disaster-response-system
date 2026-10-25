@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disaster Response System</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    font-family: -apple-system, sans-serif; background: #111; color: #eee;
+    padding: 24px;
+  }
+  h1 { font-size: 30px; margin: 0 0 8px 0; }
+  p.tagline { color: #aaa; font-size: 15px; margin: 0 0 40px 0; max-width: 480px; }
+  .cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+  .card {
+    background: #1a1a1a; border: 1px solid #333; border-radius: 12px;
+    padding: 28px 32px; width: 230px; text-decoration: none; color: #eee;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .card:hover { border-color: #00bcd4; transform: translateY(-2px); }
+  .card .icon { font-size: 34px; margin-bottom: 12px; }
+  .card h2 { font-size: 16px; margin: 0 0 6px 0; }
+  .card p { font-size: 13px; color: #999; margin: 0; line-height: 1.4; }
+  #liveStats { margin-top: 36px; font-size: 13px; color: #888; }
+  #liveStats b { color: #d32f2f; }
+</style>
+</head>
+<body>
+  <h1>Disaster Response Decision System</h1>
+  <p class="tagline">
+    Report an emergency and it's automatically prioritized by AI and routed
+    to responders — or view the live map of everything currently happening.
+  </p>
+
+  <div class="cards">
+    <a class="card" href="/report">
+      <div class="icon">🚨</div>
+      <h2>Report an Emergency</h2>
+      <p>Submit a road block, hospital status update, or a person in need of rescue.</p>
+    </a>
+    <a class="card" href="/dashboard">
+      <div class="icon">📊</div>
+      <h2>View Live Dashboard</h2>
+      <p>See every report on a live map, prioritized and routed by AI.</p>
+    </a>
+  </div>
+
+  <div id="liveStats">Loading current status…</div>
+
+  <script>
+    async function loadStats() {
+      try {
+        const res = await fetch('/reports');
+        const reports = await res.json();
+        const critical = reports.filter(r => r.priority_label === 'CRITICAL').length;
+        document.getElementById('liveStats').innerHTML =
+          `${reports.length} active reports right now · <b>${critical} critical</b>`;
+      } catch (e) {
+        document.getElementById('liveStats').textContent = '';
+      }
+    }
+    loadStats();
+  </script>
+</body>
+</html>

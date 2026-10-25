@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Disaster Response Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  body { margin: 0; font-family: -apple-system, sans-serif; background: #111; color: #eee; }
+  #header { padding: 12px 20px; background: #1a1a1a; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+  #header h1 { font-size: 16px; margin: 0; font-weight: 500; }
+  #stats { font-size: 13px; color: #aaa; }
+  #map { height: calc(100vh - 52px); width: 100%; }
+.leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
+  .legend { position: absolute; bottom: 20px; right: 20px; background: #1a1a1a; padding: 10px 14px; border-radius: 8px; font-size: 12px; z-index: 1000; border: 1px solid #333; }
+  .legend div { margin: 4px 0; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  
+</style>
+</head>
+<body>
+      <div id="header">
+    <h1>Disaster Response — Live Report Feed</h1>
+    <div id="stats">Loading...</div>
+  </div>
+  <div id="map"></div>
+  <div class="legend">
+    <div><span class="dot" style="background:#d32f2f"></span> Critical</div>
+    <div><span class="dot" style="background:#f57c00"></span> High</div>
+    <div><span class="dot" style="background:#fbc02d"></span> Medium</div>
+    <div><span class="dot" style="background:#388e3c"></span> Low</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const API_BASE = "http://localhost:8000";
+    const COLORS = { CRITICAL: "#d32f2f", HIGH: "#f57c00", MEDIUM: "#fbc02d", LOW: "#388e3c" };
+
+    const map = L.map('map').setView([13.0827, 80.2707], 12);
+    // NOTE: raw tile.openstreetmap.org enforces a strict usage policy and will
+    // 403-block apps that poll/refresh a lot or run from shared/cloud IPs.
+    // CartoDB's basemap tiles are free, need no API key, and don't have this
+    // problem — a much safer choice for a demo/prototype dashboard.
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19,
+}).addTo(map);
+
+        let markers = {};
+    let routeLine = null;
+    let hqMarker = L.marker([13.0827 - 0.08, 80.2707 - 0.08], {
+      title: "Rescue HQ"
+    }).bindPopup("Rescue HQ").addTo(map);
+
+    async function showRoute(reportId) {
+      try {
+        const res = await fetch(`${API_BASE}/route/${reportId}`);
+        const data = await res.json();
+        if (routeLine) map.removeLayer(routeLine);
+        const latlngs = data.waypoints.map(w => [w.lat, w.lng]);
+        routeLine = L.polyline(latlngs, { color: "#00bcd4", weight: 4, opacity: 0.8 }).addTo(map);
+        map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+        console.log(`Route: cost=${data.total_cost}, avoided ${data.blocked_nodes_avoided} blocked nodes, expanded ${data.nodes_expanded} nodes (A* search)`);
+      } catch (e) {
+        alert("Could not compute route: " + e);
+      }
+    }
+    window.showRoute = showRoute;
+
+    async function refresh() {
+      try {
+        const res = await fetch(`${API_BASE}/reports`);
+        const reports = await res.json();
+
+        document.getElementById('stats').textContent =
+          `${reports.length} reports · ${reports.filter(r => r.priority_label === 'CRITICAL').length} critical`;
+
+        const seen = new Set();
+        for (const r of reports) {
+          seen.add(r.report_id);
+          const color = COLORS[r.priority_label] || "#888";
+          if (markers[r.report_id]) {
+            markers[r.report_id].setStyle({ color, fillColor: color });
+          } else {
+            const marker = L.circleMarker([r.lat, r.lng], {
+              radius: 8, color, fillColor: color, fillOpacity: 0.8, weight: 1,
+            }).addTo(map);
+            const urgencyLabels = { "-1": "lowered", "0": "neutral", "1": "raised", "2": "raised sharply" };
+            const aiLine = r.text_urgency_terms
+              ? `<br><i style="color:#9c9">AI text analysis: urgency ${urgencyLabels[r.text_urgency_class] || 'neutral'} ` +
+                `(${Math.round((r.text_urgency_confidence || 0) * 100)}% confidence)` +
+                (r.text_urgency_terms ? ` — key terms: ${r.text_urgency_terms}` : '') + `</i>`
+              : '';
+            marker.bindPopup(
+              `<b>${r.type.replace('_', ' ')}</b><br>` +
+              `Priority: ${r.priority_label} (${r.priority_score})<br>` +
+              `${r.description || ''}<br>` +
+              `<i>${r.recommended_action}</i><br>` +
+              aiLine +
+              `Status: ${r.status}<br>` +
+              `<button onclick="showRoute('${r.report_id}')" style="margin-top:6px;padding:4px 8px;cursor:pointer;">Show route from HQ</button>`
+            );
+            markers[r.report_id] = marker;
+          }
+        }
+        // remove markers for reports no longer returned (e.g. filtered out)
+        for (const id in markers) {
+          if (!seen.has(id)) {
+            map.removeLayer(markers[id]);
+            delete markers[id];
+          }
+        }
+      } catch (e) {
+        document.getElementById('stats').textContent = "Cannot reach API — is main.py running?";
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report an Emergency</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, sans-serif; background: #111; color: #eee; }
+  #wrap { max-width: 520px; margin: 0 auto; padding: 24px 20px 60px; }
+  a.back { color: #888; font-size: 13px; text-decoration: none; }
+  h1 { font-size: 22px; margin: 16px 0 4px 0; }
+  p.sub { color: #999; font-size: 13px; margin: 0 0 24px 0; }
+  label { display: block; font-size: 13px; color: #ccc; margin: 18px 0 6px 0; font-weight: 600; }
+  select, textarea {
+    width: 100%; padding: 10px 12px; background: #1a1a1a; border: 1px solid #333;
+    border-radius: 8px; color: #eee; font-size: 14px; font-family: inherit;
+  }
+  textarea { min-height: 90px; resize: vertical; }
+  .severity-row { display: flex; gap: 8px; }
+  .severity-row button {
+    flex: 1; padding: 10px 0; background: #1a1a1a; border: 1px solid #333;
+    border-radius: 8px; color: #ccc; cursor: pointer; font-size: 14px;
+  }
+  .severity-row button.selected { background: #00bcd4; color: #111; border-color: #00bcd4; font-weight: 700; }
+  #map { height: 260px; border-radius: 8px; margin-top: 8px; border: 1px solid #333; }
+  #locBtn {
+    margin-top: 8px; background: none; border: 1px solid #444; color: #ccc;
+    padding: 7px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  }
+  #locBtn:hover { border-color: #00bcd4; color: #00bcd4; }
+  #locStatus { font-size: 12px; color: #888; margin-top: 6px; }
+  #submitBtn {
+    width: 100%; margin-top: 28px; padding: 14px; background: #d32f2f; color: #fff;
+    border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  #submitBtn:hover { background: #e53935; }
+  #submitBtn:disabled { background: #555; cursor: not-allowed; }
+  #result { margin-top: 20px; padding: 16px; border-radius: 8px; font-size: 14px; display: none; }
+  #result.success { background: #1b3a1e; border: 1px solid #388e3c; display: block; }
+  #result.error { background: #3a1b1b; border: 1px solid #d32f2f; display: block; }
+  #result a { color: #00bcd4; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <a class="back" href="/">← Back</a>
+  <h1>Report an Emergency</h1>
+  <p class="sub">This is sent immediately to responders and scored automatically by AI for priority.</p>
+
+  <label>What are you reporting?</label>
+  <select id="type">
+    <option value="victim_triage">Person needing rescue</option>
+    <option value="road_block">Road block / hazard</option>
+    <option value="hospital_status">Hospital capacity update</option>
+  </select>
+
+  <label>How severe is it? (1 = minor, 5 = critical)</label>
+  <div class="severity-row" id="severityRow">
+    <button data-v="1">1</button>
+    <button data-v="2">2</button>
+    <button data-v="3" class="selected">3</button>
+    <button data-v="4">4</button>
+    <button data-v="5">5</button>
+  </div>
+
+  <label>Describe what's happening</label>
+  <textarea id="description" placeholder="e.g. Person trapped on rooftop, water rising fast"></textarea>
+
+  <label>Location — tap the map to mark it</label>
+  <div id="map"></div>
+  <button id="locBtn" type="button">📍 Use my current location</button>
+  <div id="locStatus">No location selected yet — tap the map above.</div>
+
+  <button id="submitBtn" type="button" disabled>Select a location to submit</button>
+
+  <div id="result"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map').setView([13.0827, 80.2707], 12);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri, HERE, Garmin, OpenStreetMap contributors',
+    maxZoom: 19,
+    maxNativeZoom: 16,
+  }).addTo(map);
+
+  let marker = null;
+  let selectedLat = null, selectedLng = null;
+
+  function setLocation(lat, lng, sourceLabel) {
+    selectedLat = lat; selectedLng = lng;
+    if (marker) map.removeLayer(marker);
+    marker = L.marker([lat, lng]).addTo(map);
+    document.getElementById('locStatus').textContent =
+      `${sourceLabel}: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    updateSubmitState();
+  }
+
+  map.on('click', (e) => setLocation(e.latlng.lat, e.latlng.lng, 'Tapped on map'));
+
+  document.getElementById('locBtn').addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      document.getElementById('locStatus').textContent = 'Geolocation not supported on this device — tap the map instead.';
+      return;
+    }
+    document.getElementById('locStatus').textContent = 'Getting your location…';
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+        setLocation(pos.coords.latitude, pos.coords.longitude, 'Using your device location');
+      },
+      () => { document.getElementById('locStatus').textContent = 'Could not get your location — tap the map instead.'; }
+    );
+  });
+
+  let selectedSeverity = 3;
+  document.getElementById('severityRow').addEventListener('click', (e) => {
+    if (e.target.tagName !== 'BUTTON') return;
+    document.querySelectorAll('#severityRow button').forEach(b => b.classList.remove('selected'));
+    e.target.classList.add('selected');
+    selectedSeverity = parseInt(e.target.dataset.v, 10);
+  });
+
+  function updateSubmitState() {
+    const btn = document.getElementById('submitBtn');
+    if (selectedLat !== null) {
+      btn.disabled = false;
+      btn.textContent = 'Submit Report';
+    }
+  }
+
+  document.getElementById('submitBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('submitBtn');
+    const result = document.getElementById('result');
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+    result.className = ''; result.style.display = 'none';
+
+    try {
+      const res = await fetch('/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: document.getElementById('type').value,
+          location: { lat: selectedLat, lng: selectedLng },
+          severity: selectedSeverity,
+          description: document.getElementById('description').value,
+        }),
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      const data = await res.json();
+      result.className = 'success';
+      result.innerHTML = `Report submitted and queued for AI scoring.<br>` +
+        `<a href="/dashboard">View it on the live dashboard →</a>`;
+      btn.textContent = 'Submitted ✓';
+    } catch (e) {
+      result.className = 'error';
+      result.textContent = 'Could not submit — is the server running? (' + e.message + ')';
+      btn.disabled = false;
+      btn.textContent = 'Submit Report';
+    }
+  });
+</script>
+</body>
+</html>
